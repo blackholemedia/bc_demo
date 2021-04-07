@@ -6,8 +6,10 @@ import sys
 import getopt
 import hashlib
 
-from common import now, int_to_bytes
-from constants import TARGET_BIT
+import json
+
+from common import now, int_to_bytes, conn_redis
+from constants import TARGET_BIT, BLOCKS_BUCKET_NAME
 
 
 class Block(object):
@@ -48,12 +50,31 @@ class Block(object):
             ]
         )
 
+    def serialize(self):
+        return json.dumps(
+            {
+                'timestamp': self.timestamp,
+                'pre_hash': self.pre_hash,
+                'hash': self.hash,
+                'nonce': self.nonce,
+                'data': self.data,
+                'target_bit': self.target_bit
+            }
+        )
+
 
 class BlockChain(object):
 
     def __init__(self):
         self.target_bits = TARGET_BIT
-        self.chain = [self.create_genesis_block()]
+        self.conn = conn_redis()
+        if self.conn.exists(BLOCKS_BUCKET_NAME):
+            self.tip = self.conn.hget(BLOCKS_BUCKET_NAME, 'l')
+        else:
+            genesis_block = self.create_genesis_block()
+            self.conn.hset(BLOCKS_BUCKET_NAME, genesis_block.hash, genesis_block.serialize())
+            self.conn.hset(BLOCKS_BUCKET_NAME, 'l', genesis_block.hash)
+            self.tip = genesis_block.hash
 
     def create_genesis_block(self):
         pre_hash = ''
@@ -61,8 +82,18 @@ class BlockChain(object):
         return Block(pre_hash, data, self.target_bits)
 
     def add_block(self, data):
-        pre_hash = self.chain[-1].hash
-        self.chain.append(Block(pre_hash, data, self.target_bits))
+        pre_hash = self.tip
+        new_block = Block(pre_hash, data, self.target_bits)
+        self.conn.hset(BLOCKS_BUCKET_NAME, new_block.hash, new_block.serialize())
+        self.conn.hset(BLOCKS_BUCKET_NAME, 'l', new_block.hash)
+        self.tip = new_block.hash
+
+    def chain_iterator(self):
+        current_hash = self.tip
+        while current_hash:
+            current_block = json.loads(self.conn.hget(BLOCKS_BUCKET_NAME, current_hash))
+            yield current_block
+            current_hash = current_block.get('pre_hash')
 
 
 class Usage(Exception):
@@ -80,9 +111,12 @@ def main(argv=None):
             bc = BlockChain()
             bc.add_block("Send 1 BTC to Ivan")
             bc.add_block("Send 2 more BTC to Ivan")
-            for i in bc.chain:
-                print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}'.format(i.timestamp, i.pre_hash,
-                                                                                          i.data, i.hash, i.nonce))
+            for i in bc.chain_iterator():
+                print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}'.format(i['timestamp'], i['pre_hash'],
+                                                                                          i['data'], i['hash'],
+                                                                                          i['nonce']))
+                # print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}'.format(i.timestamp, i.pre_hash,
+                #                                                                           i.data, i.hash, i.nonce))
         except getopt.error as msg:
             raise Usage(msg)
         # more code, unchanged

@@ -6,6 +6,8 @@ import sys
 import getopt
 import time
 
+import redis
+
 
 class Usage(Exception):
     def __init__(self, msg):
@@ -39,6 +41,10 @@ def now(unit='ms'):
 
 def int_to_bytes(num: int):
     return num.to_bytes((num.bit_length() + 7) // 8, 'big')
+
+
+def conn_redis(host='localhost', port=6379):
+    return redis.Redis(host=host, port=port)
 
 
 if __name__ == "__main__":
