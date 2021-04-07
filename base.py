@@ -69,7 +69,7 @@ class BlockChain(object):
         self.target_bits = TARGET_BIT
         self.conn = conn_redis()
         if self.conn.exists(BLOCKS_BUCKET_NAME):
-            self.tip = self.conn.hget(BLOCKS_BUCKET_NAME, 'l')
+            self.tip = self.conn.hget(BLOCKS_BUCKET_NAME, 'l').decode('utf-8')
         else:
             genesis_block = self.create_genesis_block()
             self.conn.hset(BLOCKS_BUCKET_NAME, genesis_block.hash, genesis_block.serialize())
@@ -106,15 +106,27 @@ def main(argv=None):
         argv = sys.argv
     try:
         try:
-            opts, args = getopt.getopt(argv[1:], "ho:", ["help", "output="])  # short: h means switch, o means argument
+            opts, args = getopt.getopt(argv[1:], "hpa:", ["help", "print", "add_block="])  # short: h means switch, o means argument
             # required; long: help means switch, output means argument required
             bc = BlockChain()
-            bc.add_block("Send 1 BTC to Ivan")
-            bc.add_block("Send 2 more BTC to Ivan")
-            for i in bc.chain_iterator():
-                print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}'.format(i['timestamp'], i['pre_hash'],
-                                                                                          i['data'], i['hash'],
-                                                                                          i['nonce']))
+            for opt, opt_val in opts:
+                if opt in ("-h", "--help"):
+                    print('-p, --print: print block chain\n-a --add_block: add block')
+                    sys.exit()
+                if opt in ('-p', '--print'):
+                    for i in bc.chain_iterator():
+                        print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}\n'.format(i['timestamp'],
+                                                                                                    i['pre_hash'],
+                                                                                                    i['data'],
+                                                                                                    i['hash'],
+                                                                                                    i['nonce']))
+                    continue
+                if opt in ('-a', '--add_block'):
+                    bc.add_block(opt_val)
+
+            # bc.add_block("Send 1 BTC to Ivan")
+            # bc.add_block("Send 2 more BTC to Ivan")
+
                 # print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}'.format(i.timestamp, i.pre_hash,
                 #                                                                           i.data, i.hash, i.nonce))
         except getopt.error as msg:
