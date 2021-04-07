@@ -1,0 +1,1 @@
+TARGET_BIT = 24
