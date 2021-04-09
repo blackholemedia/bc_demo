@@ -41,8 +41,8 @@ class Transaction(object):
 
     def serialize(self):
         r = self.to_json()
-        r['inputs'] = [i.serialize() for i in r.pop('inputs')]
-        r['outputs'] = [i.serialize() for i in r.pop('outputs')]
+        r['inputs'] = [i.to_json() for i in r.pop('inputs')]
+        r['outputs'] = [i.to_json() for i in r.pop('outputs')]
         return json.dumps(r)
 
     def is_coinbase(self):
@@ -130,16 +130,22 @@ class Block(object):
 
     def _hash_transactions(self):
         txn_ids = [i.txn_id.encode('utf-8') for i in self.transactions]
-        return hashlib.sha256(b''.join(txn_ids)).hexdigest()
+        return hashlib.sha256(b''.join(txn_ids)).hexdigest().encode('utf-8')
 
     def serialize(self):
+        txns = []
+        for txn in self.transactions:
+            txn = txn.to_json()
+            txn['inputs'] = [i.to_json() for i in txn.pop('inputs')]
+            txn['outputs'] = [i.to_json() for i in txn.pop('outputs')]
+            txns.append(txn)
         return json.dumps(
             {
                 'timestamp': self.timestamp,
                 'pre_hash': self.pre_hash,
                 'hash': self.hash,
                 'nonce': self.nonce,
-                'transactions': self.transactions,
+                'transactions': txns,
                 'target_bit': self.target_bit
             }
         )
@@ -177,10 +183,24 @@ class BlockChain(object):
         current_hash = self.tip
         while current_hash:
             current_block = json.loads(self.conn.hget(BLOCKS_BUCKET_NAME, current_hash))
+            self._deserialize_txns(current_block)
             yield current_block
             current_hash = current_block.get('pre_hash')
 
-    def mine_block(self, txns: list):
+    @staticmethod
+    def _deserialize_txns(block_dict):
+        txns = []
+        for txn in block_dict.pop('transactions'):
+            txns.append(
+                Transaction(
+                    txn['txn_id'],
+                    [TransactionInput(i['ref_txn_id'], i['ref_output_index'], i['sig_key']) for i in txn['inputs']],
+                    [TransactionOutput(i['Value'], i['ScriptPubKey']) for i in txn['outputs']],
+                )
+            )
+        block_dict['transactions'] = txns
+
+    def mine_block(self, txns: list):  # duplicated of add_block
         pre_hash = self.tip
         return Block(pre_hash, txns, self.target_bits)
 
@@ -198,7 +218,7 @@ class BlockChain(object):
         acc, valid_outputs = self.find_spendable_outputs(payer, amount)
 
         if acc < amount:
-            logging.error("ERROR: Not enough funds")
+            logging.error("Not enough funds")
             return 1
         # Build a list of inputs
         txn_inputs = []
@@ -236,7 +256,7 @@ class BlockChain(object):
         spent_outputs = {}
         spendable_outputs = {}
         for block in self.chain_iterator():
-            for txn in block.txns:
+            for txn in block['transactions']:
                 txn_id = txn.txn_id
                 if not spendable_outputs.get(txn_id):
                     spendable_outputs.update({txn_id: [txn]})
@@ -249,7 +269,7 @@ class BlockChain(object):
 
                 if not txn.is_coinbase():
                     for txn_input in txn.inputs:
-                        if txn_input.ref_output_index in spendable_outputs[txn_input.ref_txn_id]:
+                        if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in spendable_outputs[txn_input.ref_txn_id]:
                             spendable_outputs[txn_input.ref_txn_id].remove(txn_input.ref_output_index)
                         if txn_input.can_unlock_with_sig(payer):
                             spent_outputs[txn_input.ref_txn_id].append(txn_input.ref_output_index)
@@ -261,19 +281,30 @@ class Usage(Exception):
         self.msg = msg
 
 
+def send(payer: str, receiver: str, amount: int, bc: BlockChain):
+    txn = bc.new_utxo_transaction(payer, receiver, amount)
+    if isinstance(txn, Transaction):
+        bc.add_block([txn])
+        print('Transfer {}BTC from {} to {} Success'.format(amount, payer, receiver))
+    else:
+        print('ERROR occurred, check the log')
+
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv
     try:
         try:
-            opts, args = getopt.getopt(argv[1:], "hp:t:a:b:", ["help", "print", "from=", "to=", "amount=", 'balance='])
+            opts, args = getopt.getopt(argv[1:], "hpf:t:a:b:", ["help", "print", "from=", "to=", "amount=", 'balance='])
             # short: h means switch, o means argument required; long: help means switch, output means argument required
             key_map = {
-                'Ivan': hashlib.sha256('Ivan').hexdigest(),
-                'Sophia': hashlib.sha256('Sophia').hexdigest(),
-                'Yuri': hashlib.sha256('Yuri').hexdigest()
+                'Ivan': hashlib.sha256('Ivan'.encode('utf-8')).hexdigest(),
+                'Sophia': hashlib.sha256('Sophia'.encode('utf-8')).hexdigest(),
+                'Yuri': hashlib.sha256('Yuri'.encode('utf-8')).hexdigest()
             }
-            bc = BlockChain()
+            for k, v in key_map.items():
+                print('{}: {}'.format(k, v))
+            bc = BlockChain(key_map['Ivan'])
             txn_opts = []
             for opt, opt_val in opts:
                 if opt in ("-h", "--help"):
@@ -281,16 +312,30 @@ def main(argv=None):
                     sys.exit()
                 if opt in ('-p', '--print'):
                     for i in bc.chain_iterator():
-                        print('timestamp: {}\npre_hash: {}\ndata: {}\nhash: {}\nnonce: {}\n'.format(i['timestamp'],
-                                                                                                    i['pre_hash'],
-                                                                                                    i['data'],
-                                                                                                    i['hash'],
-                                                                                                    i['nonce']))
+                        print('timestamp: {}\npre_hash: {}\nhash: {}\nnonce: {}'.format(i['timestamp'],
+                                                                                          i['pre_hash'],
+                                                                                          i['hash'],
+                                                                                          i['nonce'],))
+                        for txn in i['transactions']:
+                            print('Transactions id: {}\nInputs:'.format(txn.txn_id))
+                            for j in txn.inputs:
+                                print(j.to_json())
+                            print('Outputs:')
+                            for j in txn.outputs:
+                                print(j.to_json())
+                            print('\n')
                     continue
                 if opt in ('-f', '--from', '-t', '--to', '-a', '--amount'):
                     txn_opts.append((opt, opt_val))
-            if not txn_opts:
-                pass
+            if txn_opts:
+                for opt, opt_val in txn_opts:
+                    if opt in ('-f', '--from'):
+                        payer = key_map[opt_val]
+                    elif opt in ('-t', '--to'):
+                        receiver = key_map[opt_val]
+                    else:
+                        amount = int(opt_val)
+                send(payer, receiver, amount, bc)
 
             # bc.add_block("Send 1 BTC to Ivan")
             # bc.add_block("Send 2 more BTC to Ivan")
