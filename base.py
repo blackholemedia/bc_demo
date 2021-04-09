@@ -272,8 +272,21 @@ class BlockChain(object):
                         if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in spendable_outputs[txn_input.ref_txn_id]:
                             spendable_outputs[txn_input.ref_txn_id].remove(txn_input.ref_output_index)
                         if txn_input.can_unlock_with_sig(payer):
-                            spent_outputs[txn_input.ref_txn_id].append(txn_input.ref_output_index)
+                            if spent_outputs.get(txn_input.ref_txn_id):
+                                spent_outputs[txn_input.ref_txn_id].append(txn_input.ref_output_index)
+                            else:
+                                spent_outputs.update({txn_input.ref_txn_id:[txn_input.ref_output_index]})
         return spendable_outputs
+
+    def get_balance(self, address):
+        balance = 0
+        for _, outputs in self.find_unspent_transactions(address).items():
+            txn = outputs[0]
+            for output_index in outputs[1:]:
+                output = txn.outputs[output_index]
+                if output.can_be_unlocked(address):
+                    balance += output.val
+        return balance
 
 
 class Usage(Exception):
@@ -327,6 +340,10 @@ def main(argv=None):
                     continue
                 if opt in ('-f', '--from', '-t', '--to', '-a', '--amount'):
                     txn_opts.append((opt, opt_val))
+                    continue
+                if opt in ('-b', '--balance'):
+                    print('Balance of {}: {}'.format(opt_val, bc.get_balance(key_map[opt_val])))
+                    continue
             if txn_opts:
                 for opt, opt_val in txn_opts:
                     if opt in ('-f', '--from'):
