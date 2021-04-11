@@ -7,15 +7,49 @@ import getopt
 import hashlib
 import logging
 from datetime import date
+import base58
 
 import json
+from fastecdsa import curve, keys
 
 from common import now, int_to_bytes, conn_redis
-from constants import TARGET_BIT, BLOCKS_BUCKET_NAME, SUBSIDY
+from constants import TARGET_BIT, BLOCKS_BUCKET_NAME, SUBSIDY, VERSION, ADDRESS_CHECKSUM_LEN
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 TODAY = date.today().strftime('%Y-%m-%d')
 logging.basicConfig(filename='{}.log'.format(TODAY), level=logging.DEBUG, format=LOG_FORMAT)
+
+
+class Wallet(object):
+
+    def __init__(self):
+        self.private_key, self.public_key = self.new_key_pair()
+
+    def new_key_pair(self):
+        private_key = keys.gen_private_key(curve.P256)
+        pub_key = keys.get_public_key(private_key, curve.P256)
+        pub_key = b''.join([int_to_bytes(pub_key.x), int_to_bytes(pub_key.y)])
+        return private_key, pub_key
+
+    def get_address(self):
+        pubkey_hash = self.hash_pubkey()
+        versioned_payload = b''.join([int_to_bytes(VERSION) + pubkey_hash.encode('utf-8')])
+        checksum = self.check_sum(versioned_payload)
+        full_payload = b''.join([versioned_payload, checksum])
+        address = base58.b58encode(full_payload)
+        return address
+
+    def hash_pubkey(self):
+        public_hash = hashlib.sha256(self.public_key).hexdigest()
+        ripemd_hasher = hashlib.new('ripemd160')
+        ripemd_hasher.update(public_hash.encode('utf-8'))
+        return ripemd_hasher.hexdigest()
+
+    @staticmethod
+    def check_sum(payload: bytes):
+        hash_1 = hashlib.sha256(payload).hexdigest()
+        hash_2 = hashlib.sha256(hash_1.encode('utf-8')).hexdigest()
+        return hash_2.encode('utf-8')[:ADDRESS_CHECKSUM_LEN]
 
 
 class Transaction(object):
@@ -308,7 +342,7 @@ def main(argv=None):
         argv = sys.argv
     try:
         try:
-            opts, args = getopt.getopt(argv[1:], "hpf:t:a:b:", ["help", "print", "from=", "to=", "amount=", 'balance='])
+            opts, args = getopt.getopt(argv[1:], "hpcf:t:a:b:", ["help", "print", "create_wallet", "from=", "to=", "amount=", 'balance='])
             # short: h means switch, o means argument required; long: help means switch, output means argument required
             key_map = {
                 'Ivan': hashlib.sha256('Ivan'.encode('utf-8')).hexdigest(),
@@ -337,6 +371,10 @@ def main(argv=None):
                             for j in txn.outputs:
                                 print(j.to_json())
                             print('\n')
+                    continue
+                if opt in ('-c', '--create_wallet'):
+                    wallet = Wallet()
+                    print(wallet.get_address())
                     continue
                 if opt in ('-f', '--from', '-t', '--to', '-a', '--amount'):
                     txn_opts.append((opt, opt_val))
