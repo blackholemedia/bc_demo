@@ -50,15 +50,17 @@ class Wallet(object):
 class Wallets(object):
 
     def __init__(self):
-        self.wallets = None
+        self.wallets = self.load_wallets_file()
 
-    def load_wallets_file(self, wallet_file='./wallets.dat'):  # todo encrypt
+    @staticmethod
+    def load_wallets_file(wallet_file='./wallets.dat'):  # todo encrypt
         try:
-            with open(wallet_file, 'r') as f:
-                self.wallets = pickle.loads(f.read())
-        except Exception as ex:
+            with open(wallet_file, 'rb') as f:
+                return pickle.loads(f.read())
+        except IOError as ex:
             msg = 'No wallets file found'
-            logging.error(msg)
+            logging.warning(msg)
+            return {}
 
     def create_wallet(self):
         new_wallet = Wallet()
@@ -70,7 +72,7 @@ class Wallets(object):
         return self.wallets.get(address)
 
     def save_wallets_file(self, wallet_file='./wallets.dat'):  # todo encrypt
-        with open(wallet_file, 'w') as f:
+        with open(wallet_file, 'wb') as f:
             return f.write(pickle.dumps(self.wallets))
 
 
