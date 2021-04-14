@@ -15,6 +15,13 @@ from constants import VERSION, ADDRESS_CHECKSUM_LEN
 from logger import logging
 
 
+def hash_pubkey(public_key):  # a common method
+    public_hash = hashlib.sha256(public_key).hexdigest()
+    ripemd_hasher = hashlib.new('ripemd160')
+    ripemd_hasher.update(public_hash.encode('utf-8'))
+    return ripemd_hasher.hexdigest()
+
+
 class Wallet(object):
 
     def __init__(self):
@@ -27,18 +34,18 @@ class Wallet(object):
         return private_key, pub_key
 
     def get_address(self):
-        pubkey_hash = self.hash_pubkey()
-        versioned_payload = b''.join([int_to_bytes(VERSION) + pubkey_hash.encode('utf-8')])
+        pubkey_hash = hash_pubkey(self.public_key)
+        versioned_payload = b''.join([bytes.fromhex(VERSION) + pubkey_hash.encode('utf-8')])
         checksum = self.check_sum(versioned_payload)
         full_payload = b''.join([versioned_payload, checksum])
         address = base58.b58encode(full_payload)
         return address
 
-    def hash_pubkey(self):
-        public_hash = hashlib.sha256(self.public_key).hexdigest()
-        ripemd_hasher = hashlib.new('ripemd160')
-        ripemd_hasher.update(public_hash.encode('utf-8'))
-        return ripemd_hasher.hexdigest()
+#     def hash_pubkey(self):
+#         public_hash = hashlib.sha256(self.public_key).hexdigest()
+#         ripemd_hasher = hashlib.new('ripemd160')
+#         ripemd_hasher.update(public_hash.encode('utf-8'))
+#         return ripemd_hasher.hexdigest()
 
     @staticmethod
     def check_sum(payload: bytes):
@@ -65,7 +72,7 @@ class Wallets(object):
     def create_wallet(self):
         new_wallet = Wallet()
         address = new_wallet.get_address()
-        self.wallets.update({address: Wallet})
+        self.wallets.update({address: new_wallet})
         return address
 
     def get_wallet(self, address) -> Wallet:
@@ -74,6 +81,9 @@ class Wallets(object):
     def save_wallets_file(self, wallet_file='./wallets.dat'):  # todo encrypt
         with open(wallet_file, 'wb') as f:
             return f.write(pickle.dumps(self.wallets))
+
+    def is_valid_address(self, address: bytes):
+        return address in self.wallets
 
 
 class Usage(Exception):

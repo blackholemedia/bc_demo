@@ -43,6 +43,10 @@ def int_to_bytes(num: int):
     return num.to_bytes((num.bit_length() + 7) // 8, 'big')
 
 
+def bytes_to_int(num: bytes):
+    return int.from_bytes(num, 'big')
+
+
 def conn_redis(host='localhost', port=6379):
     return redis.Redis(host=host, port=port)
 
