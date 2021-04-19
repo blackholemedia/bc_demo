@@ -17,6 +17,7 @@ from common import now, int_to_bytes, bytes_to_int, conn_redis, clear_bucket
 from constants import TARGET_BIT, BLOCKS_BUCKET_NAME, SUBSIDY, UTXOSET_BUCKET_NAME
 from logger import logging
 from wallet import Wallets, Wallet, hash_pubkey
+from merkle import MerkleTree
 
 
 class Transaction(object):
@@ -149,8 +150,9 @@ class Block(object):
         target = 1 << (256 - self.target_bit)
         print("Mining the block containing txn {}".format(self.transactions[0].txn_id))
         s = time.time()
+        txn_hash = self._hash_transactions()
         while nonce < (1 << 64):
-            hash_data = self._prepare_data(nonce)
+            hash_data = self._prepare_data(nonce, txn_hash)
             result = hashlib.sha256(hash_data).hexdigest()
             if int(result, 16) < target:
                 print(result)
@@ -160,21 +162,20 @@ class Block(object):
         print('Mining cost {} seconds'.format(time.time() - s))
         return nonce, result
 
-    def _prepare_data(self, nonce):
+    def _prepare_data(self, nonce, txn_hash):
         return b"".join(
             [
                 int_to_bytes(self.timestamp),
                 int_to_bytes(self.target_bit),
                 int_to_bytes(nonce),
                 bytes.fromhex(self.pre_hash),
-                self._hash_transactions()
-                # self.data.encode('utf-8')
+                txn_hash
             ]
         )
 
     def _hash_transactions(self):
         txn_ids = [i.txn_id.encode('utf-8') for i in self.transactions]
-        return hashlib.sha256(b''.join(txn_ids)).hexdigest().encode('utf-8')
+        return MerkleTree(txn_ids).root.data
 
     def serialize(self):
         return pickle.dumps(self)
@@ -397,7 +398,9 @@ class BlockChain(object):
                 if len(updated_outputs) == 0:
                     self.del_utxo(self.conn, txn_input.ref_txn_id)
                 else:
-                    self.update_utxo(self.conn, txn_input.ref_txn_id, utxo[0] + updated_outputs)
+                    temp = [utxo[0]]
+                    temp.extend(updated_outputs)
+                    self.update_utxo(self.conn, txn_input.ref_txn_id, temp)
 
             # add new output
             self.add_utxo(self.conn, txn)
