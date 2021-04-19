@@ -291,6 +291,7 @@ class BlockChain(object):
         return txn
 
     def find_spendable_outputs(self, payer: str, amount: int):
+        # find all unspent outputs of payer
         acc = 0
         unspent_outputs = []
         for txn_id, outputs in self.find_unspent_transactions(payer).items():
@@ -306,8 +307,11 @@ class BlockChain(object):
         return acc, unspent_outputs
 
     def find_unspent_transactions(self, payer):
-        # spendable_outputs = {txn_id1: [txn, output_index1, output_index2.....], }
-        # spent_outputs = {txn_id1: [output_index1, output_index2.....], }
+        """
+        find all unspent txn containing unspent output of payer
+        spendable_outputs = {txn_id1: [txn, output_index1, output_index2.....], }
+        spent_outputs = {txn_id1: [output_index1, output_index2.....], }
+        """
         spent_outputs = {}
         spendable_outputs = {}
         for block in self.chain_iterator():
