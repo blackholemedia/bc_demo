@@ -410,11 +410,11 @@ def main(argv=None):
                     sys.exit()
                 if opt in ('-p', '--print'):
                     for i in bc.chain_iterator():
-                        print('timestamp: {}\npre_hash: {}\nhash: {}\nnonce: {}'.format(i['timestamp'],
-                                                                                          i['pre_hash'],
-                                                                                          i['hash'],
-                                                                                          i['nonce'],))
-                        for txn in i['transactions']:
+                        print('timestamp: {}\npre_hash: {}\nhash: {}\nnonce: {}'.format(i.timestamp,
+                                                                                        i.pre_hash,
+                                                                                        i.hash,
+                                                                                        i.nonce))
+                        for txn in i.transactions:
                             print('Transactions id: {}\nInputs:'.format(txn.txn_id))
                             for j in txn.inputs:
                                 print(j.to_json())
