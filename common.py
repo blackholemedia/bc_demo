@@ -51,5 +51,12 @@ def conn_redis(host='localhost', port=6379):
     return redis.Redis(host=host, port=port)
 
 
+def clear_bucket(connection: redis.Redis, bucket_name):
+    if not connection.exists(bucket_name):
+        return
+    for k, v in connection.hscan_iter(bucket_name):
+        connection.hdel(bucket_name, k)
+
+
 if __name__ == "__main__":
     sys.exit(main())

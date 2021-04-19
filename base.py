@@ -13,8 +13,8 @@ import json
 from fastecdsa import ecdsa
 from fastecdsa.point import Point
 
-from common import now, int_to_bytes, bytes_to_int, conn_redis
-from constants import TARGET_BIT, BLOCKS_BUCKET_NAME, SUBSIDY
+from common import now, int_to_bytes, bytes_to_int, conn_redis, clear_bucket
+from constants import TARGET_BIT, BLOCKS_BUCKET_NAME, SUBSIDY, UTXOSET_BUCKET_NAME
 from logger import logging
 from wallet import Wallets, Wallet, hash_pubkey
 
@@ -203,19 +203,27 @@ class BlockChain(object):
         self.conn = conn_redis()
         if self.conn.exists(BLOCKS_BUCKET_NAME):
             self.tip = self.conn.hget(BLOCKS_BUCKET_NAME, 'l').decode('utf-8')
+            if not self.conn.exists(UTXOSET_BUCKET_NAME):
+                self.reindex_utxo_set()
         else:
             if not genesis_creator:
                 logging.error('genesis_creator is needed while creating a new block chain')
                 sys.exit(1)
             genesis_block = self.mine_genesis_block([self.new_coinbase_transaction(genesis_creator)])
             self.add_block(genesis_block)
+            if self.conn.exists(UTXOSET_BUCKET_NAME):
+                clear_bucket(self.conn, UTXOSET_BUCKET_NAME)
+            self.reindex_utxo_set()
 
     def mine_genesis_block(self, coinbase_txns: list):
         pre_hash = ''
         return Block(pre_hash, coinbase_txns, self.target_bits)
 
     def create_block(self, txns: list):
-        self.add_block(self.mine_block(txns))
+        # pack transactions into block chain
+        new_block = self.mine_block(txns)
+        self.add_block(new_block)
+        self.update_utxo_set(new_block)
 
     def mine_block(self, txns: list):
         pre_hash = self.tip
@@ -226,6 +234,7 @@ class BlockChain(object):
         return Block(pre_hash, txns, self.target_bits)
 
     def add_block(self, block: Block):
+        # save new block into db
         self.conn.hset(BLOCKS_BUCKET_NAME, block.hash, block.serialize())
         self.conn.hset(BLOCKS_BUCKET_NAME, 'l', block.hash)
         self.tip = block.hash
@@ -294,7 +303,8 @@ class BlockChain(object):
         # find all unspent outputs of payer
         acc = 0
         unspent_outputs = []
-        for txn_id, outputs in self.find_unspent_transactions(payer).items():
+        utxo_set = self.get_utxo_set()
+        for txn_id, outputs in utxo_set.items():
             txn = outputs[0]
             for output_index in outputs[1:]:
                 output = txn.outputs[output_index]
@@ -306,6 +316,7 @@ class BlockChain(object):
 
         return acc, unspent_outputs
 
+    # deprecated, replaced by utxo
     def find_unspent_transactions(self, payer):
         """
         find all unspent txn containing unspent output of payer
@@ -337,11 +348,102 @@ class BlockChain(object):
                                 spent_outputs.update({txn_input.ref_txn_id: [txn_input.ref_output_index]})
         return spendable_outputs
 
+    def find_unspent_transactions_in_utxo_set(self):
+        """
+        Almost the same as BlockChain.find_unspent_transactions(), the difference are:
+        1. return all unspent txn containing unspent output, not just one payer
+        spendable_outputs = {txn_id1: [txn, output_index1, output_index2.....], }
+        spent_outputs = {txn_id1: [output_index1, output_index2.....], }
+        """
+        spent_outputs = {}
+        spendable_outputs = {}
+        for block in self.chain_iterator():
+            for txn in block.transactions:
+                txn_id = txn.txn_id
+                if not spendable_outputs.get(txn_id):
+                    spendable_outputs.update({txn_id: [txn]})
+                if not spent_outputs.get(txn_id):
+                    spent_outputs.update({txn_id: []})
+
+                for output_index in range(len(txn.outputs)):
+                    if output_index not in spent_outputs[txn_id]:
+                        spendable_outputs[txn_id].append(output_index)
+
+                if not txn.is_coinbase():  # todo remove
+                    for txn_input in txn.inputs:
+                        if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in spendable_outputs[txn_input.ref_txn_id]:
+                            spendable_outputs[txn_input.ref_txn_id].remove(txn_input.ref_output_index)
+                        if spent_outputs.get(txn_input.ref_txn_id):
+                            spent_outputs[txn_input.ref_txn_id].append(txn_input.ref_output_index)
+                        else:
+                            spent_outputs.update({txn_input.ref_txn_id: [txn_input.ref_output_index]})
+        return spendable_outputs
+
+    def reindex_utxo_set(self):
+        # init utxo
+        utxo_set = self.find_unspent_transactions_in_utxo_set()
+        self.conn.hmset(UTXOSET_BUCKET_NAME, self.serialize_utxo_set(utxo_set))
+
+    def update_utxo_set(self, block: Block):
+        # update utxo
+        for txn in block.transactions:
+            # update old output
+            for txn_input in txn.inputs:
+                updated_outputs = []
+                utxo = self.get_utxo(self.conn, txn_input.ref_txn_id)
+                for output_index in utxo[1:]:
+                    if output_index != txn_input.ref_output_index:
+                        updated_outputs.append(output_index)
+                if len(updated_outputs) == 0:
+                    self.del_utxo(self.conn, txn_input.ref_txn_id)
+                else:
+                    self.update_utxo(self.conn, txn_input.ref_txn_id, utxo[0] + updated_outputs)
+
+            # add new output
+            self.add_utxo(self.conn, txn)
+
+    def get_utxo_set(self):
+        # get all utxo
+        r = self.conn.hgetall(UTXOSET_BUCKET_NAME)
+        return self.deserialize_utxo_set(r)
+
+    def get_utxo(self, connection, txn_id: bytes):
+        # get specified utxo
+        r = connection.hget(UTXOSET_BUCKET_NAME, txn_id)  # todo return none
+        return pickle.loads(r)
+
+    def add_utxo(self, connection, txn: Transaction):
+        # add specified utxo
+        data = [txn] + list(range(len(txn.outputs)))
+        connection.hset(UTXOSET_BUCKET_NAME, txn.txn_id, pickle.dumps(data))
+
+    def del_utxo(self, connection, txn_id):
+        # delete specified utxo
+        connection.hdel(UTXOSET_BUCKET_NAME, txn_id)
+
+    def update_utxo(self, connection, k, v: list):
+        connection.hset(UTXOSET_BUCKET_NAME, k, pickle.dumps(v))
+
+    @staticmethod
+    def serialize_utxo_set(utxo_set):
+        r = {}
+        for k, v in utxo_set.items():
+            r.update({k: pickle.dumps(v)})
+        return r
+
+    @staticmethod
+    def deserialize_utxo_set(utxo_set):
+        r = {}
+        for k, v in utxo_set.items():
+            r.update({k: pickle.loads(v)})
+        return r
+
     def get_balance(self, address, wallets: Wallets):
         account = wallets.get_wallet(address)
         account_pub_key_hash = hash_pubkey(account.public_key)
         balance = 0
-        for _, outputs in self.find_unspent_transactions(account_pub_key_hash).items():
+        utxo_set = self.get_utxo_set()
+        for _, outputs in utxo_set.items():
             txn = outputs[0]
             for output_index in outputs[1:]:
                 output = txn.outputs[output_index]
