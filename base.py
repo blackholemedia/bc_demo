@@ -157,7 +157,8 @@ class BlockChain(object):
 
                 if not txn.is_coinbase():
                     for txn_input in txn.inputs:
-                        if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in spendable_outputs[txn_input.ref_txn_id]:
+                        if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in \
+                                spendable_outputs[txn_input.ref_txn_id]:
                             spendable_outputs[txn_input.ref_txn_id].remove(txn_input.ref_output_index)
                         if txn_input.can_unlock_with_key(payer):
                             if spent_outputs.get(txn_input.ref_txn_id):
@@ -189,7 +190,8 @@ class BlockChain(object):
 
                 if not txn.is_coinbase():  # todo remove
                     for txn_input in txn.inputs:
-                        if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in spendable_outputs[txn_input.ref_txn_id]:
+                        if spendable_outputs.get(txn_input.ref_txn_id) and txn_input.ref_output_index in \
+                                spendable_outputs[txn_input.ref_txn_id]:
                             spendable_outputs[txn_input.ref_txn_id].remove(txn_input.ref_output_index)
                         if spent_outputs.get(txn_input.ref_txn_id):
                             spent_outputs[txn_input.ref_txn_id].append(txn_input.ref_output_index)
@@ -332,7 +334,10 @@ def main(argv=None):
             txn_opts = []
             for opt, opt_val in opts:
                 if opt in ("-h", "--help"):
-                    print('-p, --print: print block chain\n-a --add_block: add block')
+                    print(
+                        '-p, --print: print block chain\n-c --create_wallet: create a wallet\n-s --show_wallets:'
+                        ' show all wallets\n-b --balance: get balance of provided address\ntransfer: -f --from '
+                        'address1 -t --to address2 -a --amount 8')
                     sys.exit()
                 if opt in ('-p', '--print'):
                     for i in bc.chain_iterator():
