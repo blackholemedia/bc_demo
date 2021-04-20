@@ -24,6 +24,8 @@ left blank
 
 In order to explore the mechanism of bitcoin, I create this project with python.**You will know how bitcoin work by this project** 
 
+Reference: [Going the distance](https://jeiwan.net/)
+
 ## Install
 
 Just clone the repo. You need to setup python3 environment first. And redis is necessary.
