@@ -7,17 +7,16 @@ import getopt
 import hashlib
 import base58
 import pickle
-import time
 
 import json
 from fastecdsa import ecdsa
 from fastecdsa.point import Point
 
-from common import now, int_to_bytes, bytes_to_int, conn_redis, clear_bucket
+from block import Block
+from common import int_to_bytes, bytes_to_int, conn_redis, clear_bucket
 from constants import TARGET_BIT, BLOCKS_BUCKET_NAME, SUBSIDY, UTXOSET_BUCKET_NAME
 from logger import logging
-from wallet import Wallets, Wallet, hash_pubkey
-from merkle import MerkleTree
+from wallet import Wallets, hash_pubkey
 
 
 class Transaction(object):
@@ -130,71 +129,6 @@ class TransactionInput(object):
 
     def can_unlock_with_key(self, payer_pub_key_hash):
         return hash_pubkey(self.public_key) == payer_pub_key_hash
-
-
-class Block(object):
-
-    def __init__(self, pre_hash: str, txns: list, target_bit: int):
-        self.timestamp = now()
-        self.pre_hash = pre_hash
-        self.transactions = txns
-        self.target_bit = target_bit
-        self.nonce, self.hash = self.proof_of_work()
-
-    # def set_hash(self):
-    #     hash_data = str(self.timestamp) + str(self.pre_hash) + self.data
-    #     result = hashlib.sha256(hash_data.encode('utf-8'))
-    #     return result.hexdigest()
-
-    def proof_of_work(self, nonce=0):
-        target = 1 << (256 - self.target_bit)
-        print("Mining the block containing txn {}".format(self.transactions[0].txn_id))
-        s = time.time()
-        txn_hash = self._hash_transactions()
-        while nonce < (1 << 64):
-            hash_data = self._prepare_data(nonce, txn_hash)
-            result = hashlib.sha256(hash_data).hexdigest()
-            if int(result, 16) < target:
-                print(result)
-                break
-            else:
-                nonce += 1
-        print('Mining cost {} seconds'.format(time.time() - s))
-        return nonce, result
-
-    def _prepare_data(self, nonce, txn_hash):
-        return b"".join(
-            [
-                int_to_bytes(self.timestamp),
-                int_to_bytes(self.target_bit),
-                int_to_bytes(nonce),
-                bytes.fromhex(self.pre_hash),
-                txn_hash
-            ]
-        )
-
-    def _hash_transactions(self):
-        txn_ids = [i.txn_id.encode('utf-8') for i in self.transactions]
-        return MerkleTree(txn_ids).root.data
-
-    def serialize(self):
-        return pickle.dumps(self)
-#         txns = []
-#         for txn in self.transactions:
-#             txn = txn.to_json()
-#             txn['inputs'] = [i.to_json() for i in txn.pop('inputs')]
-#             txn['outputs'] = [i.to_json() for i in txn.pop('outputs')]
-#             txns.append(txn)
-#         return json.dumps(
-#             {
-#                 'timestamp': self.timestamp,
-#                 'pre_hash': self.pre_hash,
-#                 'hash': self.hash,
-#                 'nonce': self.nonce,
-#                 'transactions': txns,
-#                 'target_bit': self.target_bit
-#             }
-#         )
 
 
 class BlockChain(object):
