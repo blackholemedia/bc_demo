@@ -5,8 +5,6 @@
 
 This is the python implementation of bitcoin .
 
-Detail description.
-
 ## Table of Contents
 
 - [Security](#security)
@@ -16,51 +14,60 @@ Detail description.
 - [API](#api)
 - [Contributing](#contributing)
 - [License](#license)
+- [TODO](#todo)
 
 ## Security
 
-### Any optional sections
+left blank
 
 ## Background
 
-### Any optional sections
+In order to explore the mechanism of bitcoin, I create this project with python.**You will know how bitcoin work by this project** 
 
 ## Install
 
-This module depends upon a knowledge of [Markdown]().
+Just clone the repo. You need to setup python3 environment first. And redis is necessary.
 
+```shell
+git clone https://github.com/blackholemedia/bc_demo.git
+pip install -r requirements.txt
+# install redis in opensuse 
+zypper install redis-server
 ```
-
-```
-
-### Any optional sections
 
 ## Usage
 
+You need to start redis locally.  
+
+Start from cli, the entry is base.py, just like this `python base.py -p`. Here are the options:
+
+```shell
+-p --print: print block chain
+-c --create_wallet: create a wallet
+-s --show_wallets: show all wallets
+-b --balance: get balance of provided address
+-f --from address1 -t --to address2 -a --amount 8: transfer currency
 ```
 
-```
 
-Note: The `license` badge image link at the top of this file should be updated with the correct `:user` and `:repo`.
-
-### Any optional sections
 
 ## API
 
-### Any optional sections
+left blank
 
 ## More optional sections
 
 ## Contributing
 
-See [the contributing file](CONTRIBUTING.md)!
+See contributors of this repo.
 
 PRs accepted.
 
 Small note: If editing the Readme, please conform to the [standard-readme](https://github.com/RichardLitt/standard-readme) specification.
 
-### Any optional sections
 
 ## License
 
-[MIT © Richard McRichface.](../LICENSE)
+left blank  
+## TODO  
+Consensus implementation  
